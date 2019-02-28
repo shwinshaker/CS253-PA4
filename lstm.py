@@ -198,7 +198,7 @@ def save_checkpoint(state, is_best):
         shutil.copyfile(filename, bestname)
 
 
-def main(resume=False):
+def main(resume=True):
 
     dataloaders, encoder = preprocessing()
     torch.save({'loaders': dataloaders,
