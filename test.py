@@ -8,7 +8,8 @@ def main():
     init = torch.load('init.pth.tar')
     encoder = init['encoder']
     dataloaders = init['loaders']
-    model, criterion, _ = build_model(input_dim=encoder.length)
+    hidden_size = init['hidden_size']
+    model, criterion, _ = build_model(input_dim=encoder.length, hidden_dim=hidden_size)
 
     print('---> loading best model')
     path = 'model_best.pth.tar'

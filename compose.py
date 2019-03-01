@@ -5,17 +5,23 @@ import torch
 import numpy as np
 from torch.nn import functional as F
 
-def generate_music(model, encoder, length=100):
+def generate_music(model, encoder, length=100, 
+                                   init_notes='<start>',
+                                   sampling='random',
+                                   temperature=1):
     
+    if sampling == 'argmax':
+        temperature = 1
+    elif sampling == 'random':
+        assert(temperature)
+    else:
+        raise KeyError('sampling tech not avaible!')
+
     # evaluation mode
     model.eval()
     
     # init_hidden
     model.hidden = model._init_hidden()
-    
-    # init note -> try anything, but start with <start>
-    init_notes = load_input_label('pa4Data/test.txt')[0][:110] 
-    #'<start>\nX:19\nT:Dusty Miller, The'
 
     # convert initial notes to tensor
     init_seq = []
@@ -25,7 +31,7 @@ def generate_music(model, encoder, length=100):
     init_seq = torch.tensor(init_seq, dtype=torch.float)
     init_seq = init_seq.view(1,len(init_seq),-1)
     
-    def _get_indices(output, temperature=1):
+    def _get_indices(output, sampling=sampling, temperature=temperature):
         # temperature based sampling
         # high temperature means low deterministic
         # pick indices on the output probability by softmax
@@ -35,7 +41,12 @@ def generate_music(model, encoder, length=100):
         probs = []
         for opt in opt_soft:
             assert(opt.shape==(93,))
-            ind = np.random.choice(dim, 1, p=opt).squeeze()
+            if sampling == 'random':
+                ind = np.random.choice(dim, 1, p=opt).squeeze()
+            elif sampling == 'argmax':
+                ind = np.argmax(opt).squeeze()
+            else:
+                raise KeyError
             inds.append(ind)
             probs.append(opt[ind])
         return inds, probs
@@ -79,10 +90,19 @@ def generate_music(model, encoder, length=100):
 
 
 def main():
+
+    # hyperparameters
+    # init note -> try anything, but start with <start>
+    init_notes = load_input_label('pa4Data/test.txt')[0][:110] # <start>
+    sampling = 'random' # 'argmax'
+    temperature = 1 # avaible if sampling is random
+    length = 200 # length of generated music sheet
+
     print('----> loading setup')
     init = torch.load('init.pth.tar')
     encoder = init['encoder']
-    model, _, _ = build_model(input_dim=encoder.length)
+    hidden_size = init['hidden_size']
+    model, _, _ = build_model(input_dim=encoder.length, hidden_dim=hidden_size)
 
     print('---> loading best model')
     path = 'model_best.pth.tar'
@@ -90,10 +110,13 @@ def main():
     model.load_state_dict(checkpoint['model'])
 
     print('---> Music sheet generated to music.txt')
-    notes, confs = generate_music(model, encoder, length=200)
+    notes, confs = generate_music(model, encoder, length=length, 
+                                                  init_notes=init_notes,
+                                                  sampling=sampling,
+                                                  temperature=temperature)
     notes_s = [s.replace('\n', '\\n') for s in list(notes)]
     notes_r = ' '.join([n+':'+c for n, c in zip(notes_s, confs.split())])
-    print(notes)
+    print(notes,end='\n\n')
     with open("music.txt", "w") as f:
         f.write(notes)
         f.write('\n------------------\n')

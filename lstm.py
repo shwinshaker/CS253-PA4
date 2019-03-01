@@ -229,7 +229,8 @@ def main():
     dataloaders, encoder = preprocessing()
     # save loader and encoder for later use
     torch.save({'loaders': dataloaders,
-                'encoder': encoder}, 'init.pth.tar')
+                'encoder': encoder,
+                'hidden_size': hidden_size}, 'init.pth.tar')
 
     model, criterion, optimizer = build_model(input_dim=encoder.length, 
                                               hidden_dim=hidden_size,
