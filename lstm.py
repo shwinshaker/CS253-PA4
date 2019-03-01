@@ -5,9 +5,6 @@ import numpy as np
 import time
 import shutil
 
-torch.manual_seed(7)
-
-
 class Evaluation():
     def __init__(self):
         self.epoch = 1
@@ -27,8 +24,8 @@ class Evaluation():
         
     def __call__(self, loss, outputs):
         
-        loss_ = loss.detach().numpy()
-        outputs_ = outputs.detach().numpy().squeeze()
+        loss_ = loss.cpu().detach().numpy()
+        outputs_ = outputs.cpu().detach().numpy().squeeze()
         # print(outputs_.shape)
         assert(outputs_.shape[0]==100)
         
@@ -58,8 +55,8 @@ class Composer(nn.Module):
         self.hidden = self._init_hidden()
         
     def _init_hidden(self):
-        return [torch.zeros([1, 1, self.hidden_dim]),
-                torch.zeros([1, 1, self.hidden_dim])]
+        return [torch.zeros([1, 1, self.hidden_dim]).to(computing_device),
+                torch.zeros([1, 1, self.hidden_dim]).to(computing_device)]
     
     def forward(self, chunk):
         assert(chunk.shape[0]==1)
@@ -71,26 +68,15 @@ class Composer(nn.Module):
         return opt_chunk # output
            
  
-def preprocessing():
-    
-    # Check if your system supports CUDA
-    use_cuda = torch.cuda.is_available()
-
-    # Setup GPU optimization if CUDA is supported
-    if use_cuda:
-        computing_device = torch.device("cuda")
-        extras = {"num_workers": 1, "pin_memory": True}
-        print("CUDA is supported")
-    else: # Otherwise, train on the CPU
-        computing_device = torch.device("cpu")
-        extras = False
-        print("CUDA NOT supported")
+def preprocessing(chunk_size=100):
 
     # load data
-    loaders, encoder = createLoaders(extras=extras)
+    loaders, encoder = createLoaders(extras=extras, chunk_size=chunk_size)
     dataloaders = dict(zip(['train', 'val', 'test'], loaders))
+    print('------- Info ---------')
     for phase in dataloaders:
-        print('%s size: %i' % (phase, len(dataloaders[phase])))
+        print('- %s size: %i' % (phase, len(dataloaders[phase])))
+    print('----------------------')
     
     return dataloaders, encoder
 
@@ -98,6 +84,9 @@ def preprocessing():
 def build_model(input_dim=93, hidden_dim=100, learning_rate=0.1):
     
     model = Composer(dim=input_dim, hidden_dim=hidden_dim)
+    # run on the gpu or cpu
+    model = model.to(computing_device)
+
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
     # optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -122,6 +111,9 @@ def train_model(model, criterion, optimizer, dataloaders,
         evaluate.reset(epoch)
         
         for i, (inputs, targets) in enumerate(dataloaders['train']):
+
+            # Put the minibatch data in CUDA Tensors and run on the GPU if supported
+            inputs, targets = inputs.to(computing_device), targets.to(computing_device)
 
             model.zero_grad()
             
@@ -182,6 +174,9 @@ def validate_model(model, criterion, loader, verbose=False, istest=False):
 
     with torch.no_grad():
         for j, (inputs, targets) in enumerate(loader):
+            # Put the minibatch data in CUDA Tensors and run on the GPU if supported
+            inputs, targets = inputs.to(computing_device), targets.to(computing_device)
+
             outputs = model(inputs)
             loss = criterion(outputs, targets.squeeze())
             evaluate(loss, outputs)
@@ -198,39 +193,35 @@ def validate_model(model, criterion, loader, verbose=False, istest=False):
 
 
 def save_checkpoint(state, is_best):
-    filename='checkpoint.pth.tar'
-    bestname='model_best.pth.tar'
+    filename='checkpoint'+str(model_num)+'.pth.tar'
+    bestname='model_best'+str(model_num)+'.pth.tar'
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, bestname)
 
 
-def main():
+def main(learning_rate=0.1, hidden_size=100, chunk_size=100):
 
     # hyperparameters
     num_epochs = 10
-    learning_rate = 0.1
-    hidden_size = 100
-    print('----------------\n'
-          '- # epochs: %i\n'
+    # learning_rate = 0.1
+    # hidden_size = 100
+    # chunk_size = 100
+
+    print('------- Hypers --------\n'
+          '- epochs: %i\n'
           '- learning rate: %g\n'
           '- hidden size: %i\n'
-          '----------------\n'
-          '' % (num_epochs, learning_rate, hidden_size))
+          '- chunk size: %i\n'
+          '----------------'
+          '' % (num_epochs, learning_rate, hidden_size, chunk_size))
 
-    resume = False # requires former checkpoint file
-    debug = False # debug code for several chunks
-    print('-------------\n'
-          'resume training: %s\n'
-          'debug mode: %s\n'
-          '-------------\n'
-          '' % ('yes' if resume else 'no', 'on' if debug else 'off'))
-
-    dataloaders, encoder = preprocessing()
+    dataloaders, encoder = preprocessing(chunk_size=chunk_size)
     # save loader and encoder for later use
     torch.save({'loaders': dataloaders,
                 'encoder': encoder,
-                'hidden_size': hidden_size}, 'init.pth.tar')
+                'hidden_size': hidden_size},
+                'init'+str(model_num)+'.pth.tar')
 
     model, criterion, optimizer = build_model(input_dim=encoder.length, 
                                               hidden_dim=hidden_size,
@@ -238,7 +229,7 @@ def main():
 
     if resume:
         print('---> loading checkpoint')
-        path = 'checkpoint.pth.tar'
+        path = 'checkpoint'+str(model_num)+'.pth.tar'
         checkpoint = torch.load(path)
 
         model.load_state_dict(checkpoint['model'])
@@ -250,9 +241,37 @@ def main():
         evaluate = Evaluation()
 
     train_model(model, criterion, optimizer, dataloaders,
-                num_epochs=num_epochs, evaluate=evaluate, best_loss=best_loss,
-                istest=debug)
+                num_epochs=num_epochs, evaluate=evaluate, 
+                best_loss=best_loss, istest=debug)
 
 
 if __name__ == "__main__":
+
+    # global parameters
+    torch.manual_seed(7)
+    model_num = 0
+    debug = False # debug mode
+    resume = False # requires former checkpoint file
+
+    # Check if your system supports CUDA
+    use_cuda = torch.cuda.is_available()
+    # Setup GPU optimization if CUDA is supported
+    if use_cuda:
+        computing_device = torch.device("cuda")
+        extras = {"num_workers": 1, "pin_memory": True}
+    else: # Otherwise, train on the CPU
+        computing_device = torch.device("cpu")
+        extras = False
+
+    print('\n------- Globals --------\n'
+          '- resume training: %s\n'
+          '- debug mode: %s\n'
+          '- # model: %i\n'
+          '- cuda supported: %s\n'
+          '------------------------'
+          '' % ('yes' if resume else 'no', 
+                'on' if debug else 'off',
+                 model_num,
+                'yes' if use_cuda else 'no'))
+
     main()

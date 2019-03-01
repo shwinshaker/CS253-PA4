@@ -54,8 +54,7 @@ def toChunk(chunk_size, corpus):
 	return result
 
 
-def createLoaders(batch_size=1, extras={}):
-	chunk_size = 100
+def createLoaders(chunk_size=100, batch_size=1, extras={}):
 	encoder = utils.String_Encoder()
 	# load training, validation and test text
 	train_input, train_target = load_input_label('pa4Data/train.txt')
