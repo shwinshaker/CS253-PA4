@@ -1,5 +1,5 @@
 from music_dataloader import load_input_label
-from lstm import build_model, Evaluation
+from lstm import build_model, Evaluation, check_cuda
 from utils import String_Encoder
 import torch
 import numpy as np
@@ -8,7 +8,8 @@ from torch.nn import functional as F
 def generate_music(model, encoder, length=100, 
                                    init_notes='<start>',
                                    sampling='random',
-                                   temperature=1):
+                                   temperature=1,
+                                   device=torch.device('cpu')):
     
     if sampling == 'argmax':
         temperature = 1
@@ -21,14 +22,14 @@ def generate_music(model, encoder, length=100,
     model.eval()
     
     # init_hidden
-    model.hidden = model._init_hidden()
+    model.hidden = model._init_hidden(device=device)
 
     # convert initial notes to tensor
     init_seq = []
     for w in init_notes:
         init_seq.append(encoder.get_one_hot(w))
         
-    init_seq = torch.tensor(init_seq, dtype=torch.float)
+    init_seq = torch.tensor(init_seq, dtype=torch.float).to(device)
     init_seq = init_seq.view(1,len(init_seq),-1)
     
     def _get_indices(output, sampling=sampling, temperature=temperature):
@@ -36,7 +37,7 @@ def generate_music(model, encoder, length=100,
         # high temperature means low deterministic
         # pick indices on the output probability by softmax
         dim = output.shape[1]
-        opt_soft = F.softmax(output/temperature, dim=1).detach().numpy()
+        opt_soft = F.softmax(output/temperature, dim=1).cpu().detach().numpy()
         inds = []
         probs = []
         for opt in opt_soft:
@@ -61,7 +62,7 @@ def generate_music(model, encoder, length=100,
             character = encoder.get_character(ind)
             inputs.append(encoder.get_one_hot(character))
             characters.append(character)
-        inputs = torch.tensor(inputs, dtype=torch.float)
+        inputs = torch.tensor(inputs, dtype=torch.float).to(device)
         inputs = inputs.view(1, len(characters), -1)
         assert(inputs.shape[-1] == 93)
         return characters, inputs, probs
@@ -98,14 +99,17 @@ def main():
     temperature = 1 # avaible if sampling is random
     length = 200 # length of generated music sheet
 
+    print('---> check cuda')
+    use_cuda, device, extras = check_cuda()
+
     print('----> loading setup')
-    init = torch.load('init.pth.tar')
+    init = torch.load('init0.pth.tar')
     encoder = init['encoder']
     hidden_size = init['hidden_size']
-    model, _, _ = build_model(input_dim=encoder.length, hidden_dim=hidden_size)
+    model, _, _ = build_model(input_dim=encoder.length, hidden_dim=hidden_size, device=device)
 
     print('---> loading best model')
-    path = 'model_best.pth.tar'
+    path = 'model_best0.pth.tar'
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model'])
 
@@ -113,7 +117,8 @@ def main():
     notes, confs = generate_music(model, encoder, length=length, 
                                                   init_notes=init_notes,
                                                   sampling=sampling,
-                                                  temperature=temperature)
+                                                  temperature=temperature,
+                                                  device=device)
     notes_s = [s.replace('\n', '\\n') for s in list(notes)]
     notes_r = ' '.join([n+':'+c for n, c in zip(notes_s, confs.split())])
     print(notes,end='\n\n')

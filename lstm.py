@@ -45,18 +45,18 @@ class Evaluation():
 # lstm model
 class Composer(nn.Module):
     
-    def __init__(self, dim=93, hidden_dim=100):
+    def __init__(self, dim=93, hidden_dim=100, device=None):
         super(Composer, self).__init__()
         self.dim = dim
         self.hidden_dim = hidden_dim
         self.lstm = nn.LSTM(input_size=dim, hidden_size=hidden_dim,
                             batch_first=True)
         self.linear = nn.Linear(hidden_dim, dim)
-        self.hidden = self._init_hidden()
+        self.hidden = self._init_hidden(device)
         
-    def _init_hidden(self):
-        return [torch.zeros([1, 1, self.hidden_dim]).to(computing_device),
-                torch.zeros([1, 1, self.hidden_dim]).to(computing_device)]
+    def _init_hidden(self, device):
+        return [torch.zeros([1, 1, self.hidden_dim]).to(device),
+                torch.zeros([1, 1, self.hidden_dim]).to(device)]
     
     def forward(self, chunk):
         assert(chunk.shape[0]==1)
@@ -81,11 +81,11 @@ def preprocessing(chunk_size=100):
     return dataloaders, encoder
 
 
-def build_model(input_dim=93, hidden_dim=100, learning_rate=0.1):
+def build_model(input_dim=93, hidden_dim=100, learning_rate=0.1, device=None):
     
-    model = Composer(dim=input_dim, hidden_dim=hidden_dim)
+    model = Composer(dim=input_dim, hidden_dim=hidden_dim, device=device)
     # run on the gpu or cpu
-    model = model.to(computing_device)
+    model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
@@ -96,7 +96,7 @@ def build_model(input_dim=93, hidden_dim=100, learning_rate=0.1):
     
 def train_model(model, criterion, optimizer, dataloaders, 
                 num_epochs=1, best_loss=10, 
-                evaluate=Evaluation(), istest=False):
+                evaluate=Evaluation(), device=None, istest=False):
     # init timer
     since = time.time()
     start_epoch = evaluate.epoch
@@ -113,7 +113,7 @@ def train_model(model, criterion, optimizer, dataloaders,
         for i, (inputs, targets) in enumerate(dataloaders['train']):
 
             # Put the minibatch data in CUDA Tensors and run on the GPU if supported
-            inputs, targets = inputs.to(computing_device), targets.to(computing_device)
+            inputs, targets = inputs.to(device), targets.to(device)
 
             model.zero_grad()
             
@@ -133,8 +133,8 @@ def train_model(model, criterion, optimizer, dataloaders,
                 # validate first
                 val_loss = validate_model(model, criterion,
                                           dataloaders['val'],
-                                          istest=istest)
-                
+                                          istest=istest,
+                                          device=device)
                 
                 # update best loss
                 is_best = val_loss < best_loss
@@ -164,7 +164,7 @@ def train_model(model, criterion, optimizer, dataloaders,
                 
 
 # could also be use to test
-def validate_model(model, criterion, loader, verbose=False, istest=False):
+def validate_model(model, criterion, loader, device=None, verbose=False, istest=False):
     
     model.eval() # Set model to evaluate mode
     
@@ -175,7 +175,7 @@ def validate_model(model, criterion, loader, verbose=False, istest=False):
     with torch.no_grad():
         for j, (inputs, targets) in enumerate(loader):
             # Put the minibatch data in CUDA Tensors and run on the GPU if supported
-            inputs, targets = inputs.to(computing_device), targets.to(computing_device)
+            inputs, targets = inputs.to(device), targets.to(device)
 
             outputs = model(inputs)
             loss = criterion(outputs, targets.squeeze())
@@ -200,7 +200,20 @@ def save_checkpoint(state, is_best):
         shutil.copyfile(filename, bestname)
 
 
-def main(learning_rate=0.1, hidden_size=100, chunk_size=100):
+def check_cuda():
+    # Check if your system supports CUDA
+    use_cuda = torch.cuda.is_available()
+    # Setup GPU optimization if CUDA is supported
+    if use_cuda:
+        device = torch.device("cuda")
+        extras = {"num_workers": 1, "pin_memory": True}
+    else: # Otherwise, train on the CPU
+        device = torch.device("cpu")
+        extras = False
+    return use_cuda, device, extras
+
+
+def main(learning_rate=0.1, hidden_size=100, chunk_size=100, device=None):
 
     # hyperparameters
     num_epochs = 10
@@ -225,7 +238,8 @@ def main(learning_rate=0.1, hidden_size=100, chunk_size=100):
 
     model, criterion, optimizer = build_model(input_dim=encoder.length, 
                                               hidden_dim=hidden_size,
-                                              learning_rate=learning_rate)
+                                              learning_rate=learning_rate,
+                                              device=device)
 
     if resume:
         print('---> loading checkpoint')
@@ -242,7 +256,7 @@ def main(learning_rate=0.1, hidden_size=100, chunk_size=100):
 
     train_model(model, criterion, optimizer, dataloaders,
                 num_epochs=num_epochs, evaluate=evaluate, 
-                best_loss=best_loss, istest=debug)
+                best_loss=best_loss, istest=debug, device=device)
 
 
 if __name__ == "__main__":
@@ -253,15 +267,7 @@ if __name__ == "__main__":
     debug = False # debug mode
     resume = False # requires former checkpoint file
 
-    # Check if your system supports CUDA
-    use_cuda = torch.cuda.is_available()
-    # Setup GPU optimization if CUDA is supported
-    if use_cuda:
-        computing_device = torch.device("cuda")
-        extras = {"num_workers": 1, "pin_memory": True}
-    else: # Otherwise, train on the CPU
-        computing_device = torch.device("cpu")
-        extras = False
+    use_cuda, device, extras = check_cuda()
 
     print('\n------- Globals --------\n'
           '- resume training: %s\n'
@@ -274,4 +280,4 @@ if __name__ == "__main__":
                  model_num,
                 'yes' if use_cuda else 'no'))
 
-    main()
+    main(device=device)
