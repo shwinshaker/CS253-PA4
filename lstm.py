@@ -26,9 +26,6 @@ class Evaluation():
         
         loss_ = loss.cpu().detach().numpy()
         outputs_ = outputs.cpu().detach().numpy().squeeze()
-        # print(outputs_.shape)
-        assert(outputs_.shape[0]==100)
-        
         chunk_size = outputs_.shape[0]
         self.loss += loss_ * chunk_size
         self.count_data += chunk_size
@@ -88,19 +85,19 @@ def build_model(input_dim=93, hidden_dim=100, learning_rate=0.1, device=None):
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
-    # optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
     return model, criterion, optimizer
     
     
 def train_model(model, criterion, optimizer, dataloaders, 
-                num_epochs=1, best_loss=10, 
+                num_epochs=1, best_loss=10, chunk_size=100,
                 evaluate=Evaluation(), device=None, istest=False):
     # init timer
     since = time.time()
     start_epoch = evaluate.epoch
-    step = 500
+    step = 500 * 100 // chunk_size
     if istest: step = 10
     
     for epoch in range(start_epoch, num_epochs+1):
@@ -213,10 +210,10 @@ def check_cuda():
     return use_cuda, device, extras
 
 
-def main(learning_rate=0.1, hidden_size=100, chunk_size=100, device=None):
+def main(learning_rate=0.01, hidden_size=100, chunk_size=100, device=None):
 
     # hyperparameters
-    num_epochs = 10
+    num_epochs = 50
     # learning_rate = 0.1
     # hidden_size = 100
     # chunk_size = 100
@@ -255,7 +252,7 @@ def main(learning_rate=0.1, hidden_size=100, chunk_size=100, device=None):
         evaluate = Evaluation()
 
     train_model(model, criterion, optimizer, dataloaders,
-                num_epochs=num_epochs, evaluate=evaluate, 
+                num_epochs=num_epochs, evaluate=evaluate, chunk_size=chunk_size,
                 best_loss=best_loss, istest=debug, device=device)
 
 
