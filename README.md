@@ -14,3 +14,6 @@
 `utils.py`: encoding utils for dataloader
 
 `music_dataloader.py`: dataloader
+
+![loss curve](loss.png)
+![feature map](feature.png)
