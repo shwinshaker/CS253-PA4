@@ -22,7 +22,8 @@ def generate_music(model, encoder, length=100,
     model.eval()
     
     # init_hidden
-    model.hidden = model._init_hidden(device=device)
+    # todo: should we initialize hidden layer here?
+    # model.hidden = model._init_hidden(device=device)
 
     # convert initial notes to tensor
     init_seq = []
@@ -94,27 +95,33 @@ def main():
 
     # hyperparameters
     # init note -> try anything, but start with <start>
-    init_notes = load_input_label('pa4Data/test.txt')[0][:110] # <start>
+    # init_notes = load_input_label('pa4Data/test.txt')[0][:110] # <start>
+    init_notes = '<start>'
     sampling = 'random' # 'argmax'
     temperature = 1 # avaible if sampling is random
-    length = 200 # length of generated music sheet
+    length = 400 # length of generated music sheet
 
     print('---> check cuda')
     use_cuda, device, extras = check_cuda()
+    print('cuda: %s' % 'yes' if use_cuda else 'no')
+    if use_cuda:
+        loc = 'cuda'
+    else:
+        loc = 'cpu'
 
     print('----> loading setup')
-    init = torch.load('init0.pth.tar')
+    init = torch.load('best model/init14.pth.tar', map_location=loc)
     encoder = init['encoder']
     hidden_size = init['hidden_size']
     model, _, _ = build_model(input_dim=encoder.length, hidden_dim=hidden_size, device=device)
 
     print('---> loading best model')
-    path = 'model_best0.pth.tar'
-    checkpoint = torch.load(path)
+    path = 'best model/model_best14.pth.tar'
+    checkpoint = torch.load(path, map_location=loc)
     model.load_state_dict(checkpoint['model'])
 
     print('---> Music sheet generated to music.txt')
-    notes, confs = generate_music(model, encoder, length=length, 
+    notes, confs = generate_music(model, encoder, length=length,
                                                   init_notes=init_notes,
                                                   sampling=sampling,
                                                   temperature=temperature,
